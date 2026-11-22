@@ -1,8 +1,22 @@
 <!doctype html>
-<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>金色圣诞树</title>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>星屿 · 我的圣诞树</title>
 <style>
 *{box-sizing:border-box}body{margin:0;background:#100c10;color:#f4dfbd;font:14px system-ui}canvas{width:100vw;height:100dvh;display:block;touch-action:none}footer{position:fixed;bottom:18px;left:0;right:0;text-align:center}button{background:#201918;color:#ead5aa;border:1px solid #685437;border-radius:24px;padding:8px 16px;cursor:pointer}small{display:block;margin:8px;color:#baab9a}video{position:fixed;bottom:20px;right:16px;width:min(19vw,140px);transform:scaleX(-1);border-radius:6px}
-</style><canvas aria-label="金色粒子圣诞树"></canvas><footer><button id="toggle">散开星尘</button> <button id="demo">演示流星雨</button> <button id="camera">开启手势</button><small id="status" aria-live="polite">点击散开 / 聚拢 · 滑动引出流星 · 按住 R 蓄能 · 松开引爆</small></footer><video muted playsinline hidden></video>
+
+body{background:#080b14;color:#fff1d1;font-family:"Microsoft YaHei",system-ui,sans-serif;overflow:hidden}
+header{position:fixed;left:max(20px,env(safe-area-inset-left));top:max(20px,env(safe-area-inset-top));pointer-events:none;text-shadow:0 2px 12px #080812}
+h1{font:500 clamp(20px,3vw,30px) Georgia,serif;letter-spacing:.12em;margin:0 0 5px}
+#growth{font-size:12px;color:#ecd6ae}progress{display:block;width:112px;height:3px;margin-top:8px;border:0;background:#34313c;accent-color:#e3bd77}progress::-webkit-progress-bar{background:#34313c}progress::-webkit-progress-value{background:#edce8d}
+footer{bottom:max(7px,env(safe-area-inset-bottom));padding:0 8px}button{min-height:42px;padding:8px 14px;background:#171725eb;border-color:#665648;font-size:13px}
+button:focus-visible{outline:2px solid #fff0b4}#hold{touch-action:none;user-select:none;-webkit-user-select:none;background:#392d26}
+video{bottom:110px;pointer-events:none}
+#garden{position:fixed;inset:0;pointer-events:none}
+.seed{position:absolute;pointer-events:auto;width:48px;height:48px;min-height:48px;padding:0;border:0;background:transparent;color:#ffefad;font-size:27px;line-height:1;text-shadow:0 0 6px #fff7bf,0 0 18px #ffba43;animation:float 3s ease-in-out infinite alternate}
+.seed:before{content:"";position:absolute;inset:7px;border:1px solid #ffde9380;border-radius:50%}
+@keyframes float{to{transform:translate(4px,-9px) rotate(12deg)}}
+#hint{position:fixed;top:max(20px,env(safe-area-inset-top));right:16px;max-width:44vw;text-align:right;color:#efe0c9;font-size:12px;line-height:1.6;pointer-events:none}
+@media(max-width:520px){footer button{padding:6px 10px;font-size:12px}small{font-size:11px}video{width:76px}}
+</style><canvas aria-label="金色粒子圣诞树"></canvas><header><h1>星屿圣诞树</h1><span id="growth"></span><progress id="meter" aria-label="圣诞树成长进度"></progress></header><div id="hint" role="status"></div><div id="garden"></div><footer><button id="toggle">散开星尘</button> <button id="demo">演示流星雨</button> <button id="hold">按住蓄能</button> <button id="camera">开启手势</button><small id="status" aria-live="polite">滑动召唤流星 · 按住蓄能，松手引爆</small></footer><video muted playsinline hidden></video>
 <script>
 const canvas=document.querySelector('canvas'), ctx=canvas.getContext('2d');
 const toggle=document.querySelector('#toggle'),camera=document.querySelector('#camera'),statusLine=document.querySelector('#status');
@@ -18,9 +32,66 @@ const wrap=(x,size)=>((x%size)+size)%size;
 const clamp=x=>Math.min(1,Math.max(0,x));
 let keepColors=false,pinching=false,keySpin=false,spinSpeed=0,treeAngle=0;
 let charge=0,armed=false,burstAge=Infinity,sparks=[];
+const stages=[
+  {count:0,name:'星芽'},{count:3,name:'星链'},{count:8,name:'极光'},{count:15,name:'星冠'}
+];
+let harvest=0;
+try{harvest=Math.max(0,Math.min(999999,Math.floor(Number(localStorage.getItem('starlit.harvest'))||0)))}catch{}
+const garden=document.querySelector('#garden'),hint=document.querySelector('#hint');
+let level=0,waveStarted=false;
+function updateGarden(){
+  level=stages.filter(stage=>stage.count<=harvest).length-1;
+  const next=stages[level+1];
+  document.querySelector('#growth').textContent=stages[level].name+' · '+harvest+' 颗星种';
+  const meter=document.querySelector('#meter');
+  meter.max=next ? next.count-stages[level].count : 1;
+  meter.value=next ? harvest-stages[level].count : 1;
+  hint.textContent=next ? '再收集 '+(next.count-harvest)+' 颗，点亮'+next.name : '星冠已点亮';
+}
+function releaseSeeds(){
+  if(garden.childElementCount)return;
+  for(let i=0;i<3;i++){
+    const seed=document.createElement('button');seed.className='seed';
+    seed.textContent='✦';seed.setAttribute('aria-label','收集星种');
+    seed.style.left=(8+i*28+rand()*9)+'%';seed.style.top=(24+rand()*34)+'%';
+    seed.style.animationDelay=(-rand()*3)+'s';
+    seed.onclick=()=>{
+      seed.remove();harvest++;try{localStorage.setItem('starlit.harvest',String(harvest))}catch{}
+      updateGarden();
+      if(!garden.childElementCount)hint.textContent+=' · 再次蓄能引爆可获得星种';
+    };
+    garden.append(seed);
+  }
+  hint.textContent='轻点带光圈的星种，培育圣诞树';
+}
+function drawGrowth(cx,top,t){
+  if(!level)return;
+  ctx.save();ctx.globalCompositeOperation='lighter';ctx.globalAlpha=1-spread;
+  if(level>=2){
+    const gradient=ctx.createRadialGradient(cx,top+scale*.52,1,cx,top+scale*.52,scale*.55);
+    gradient.addColorStop(0,'rgba(63,215,193,.11)');gradient.addColorStop(.62,'rgba(111,92,232,.10)');gradient.addColorStop(1,'rgba(30,40,90,0)');
+    ctx.fillStyle=gradient;ctx.fillRect(cx-scale,top-scale*.1,scale*2,scale*1.3);
+  }
+  for(let i=0;i<80;i++){
+    const h=.12+i*.0106,a=h*19+treeAngle,r=h*.31*scale;
+    const x=cx+r*Math.cos(a),y=top+h*scale+r*.19*Math.sin(a);
+    ctx.fillStyle=level>=2 ? 'hsl('+(155+h*140)+',85%,77%)' : '#ffdf9f';
+    const size=Math.max(.7,scale*.003)*(1.2+.45*Math.sin(a));
+    ctx.beginPath();ctx.arc(x,y,size,0,tau);ctx.fill();
+  }
+  if(level>=3){
+    for(let i=0;i<9;i++){
+      const a=t*.42+i*tau/9;
+      const x=cx+scale*.085*Math.cos(a),y=top-scale*.031+scale*.022*Math.sin(a);
+      glow(x,y,scale*.013,'#fff3bf');
+    }
+  }
+  ctx.restore();
+}
+updateGarden();
 function explode(){
   if(!armed)return;
-  armed=false;charge=0;burstAge=0;keepColors=true;scatter(true);
+  releaseSeeds();armed=false;charge=0;burstAge=0;keepColors=true;scatter(true);
   sparks=Array.from({length:920},(_,i)=>{
     const a=rand()*tau,depth=rand(),speed=(.16+depth**2*1.22);
     return {vx:Math.cos(a)*speed,vy:Math.sin(a)*speed,hue:(i%9)*40+rand()*22,life:1.1+rand()*2.4,size:.6+depth*2.4};
@@ -58,6 +129,11 @@ function resize(){
 resize();addEventListener('resize',resize);
 function scatter(on){if(target!==Number(on)){rainAge=0;raining=false;handAnchor=null}target=Number(on);toggle.textContent=on?'聚成圣诞树':'散开星尘'}
 toggle.onclick=()=>scatter(!target);
+const hold=document.querySelector('#hold');
+hold.onpointerdown=e=>{hold.setPointerCapture(e.pointerId);keySpin=true;scatter(false);hold.textContent='松手引爆'};
+hold.onpointerup=()=>{keySpin=false;hold.textContent='按住蓄能';explode()};
+hold.onpointercancel=()=>{keySpin=false;hold.textContent='按住蓄能'};
+hold.oncontextmenu=e=>e.preventDefault();
 canvas.onpointerdown=e=>{drag={x:e.clientX,y:e.clientY};canvas.setPointerCapture(e.pointerId)};
 canvas.onpointercancel=()=>{drag=null};
 canvas.onpointermove=e=>{
@@ -104,6 +180,7 @@ function draw(ms){
   spread+=(target-spread)*(1-Math.exp(-dt*3.3));
   colorAge=Math.min(7,Math.max(0,colorAge+(target && spread>.82?dt:target?0:-dt*6)));
   if(raining && colorAge>.45){
+    if(!waveStarted && rainAge>1){waveStarted=true;releaseSeeds()}
     rainAge+=dt;
     if(rainAge>.25)keepColors=true;
   }
@@ -179,7 +256,7 @@ function draw(ms){
   ctx.globalAlpha=1-night;glow(cx,top,scale*(.095+.09*spread),'#fff9ce');
   ctx.fillStyle='#fff7ad';ctx.beginPath();
   for(let i=0;i<10;i++){const a=i*Math.PI/5-Math.PI/2,r=scale*(i%2?.011:.026);ctx.lineTo(cx+r*Math.cos(a),top+r*Math.sin(a))}
-  ctx.closePath();ctx.fill();ctx.globalAlpha=1;drawEnergy(cx,top,t);requestAnimationFrame(draw);
+  ctx.closePath();ctx.fill();ctx.globalAlpha=1;drawGrowth(cx,top,t);drawEnergy(cx,top,t);requestAnimationFrame(draw);
 }
 requestAnimationFrame(draw);
 // MediaPipe's hand landmarks are optional. The particle renderer runs locally.
@@ -194,7 +271,7 @@ async function stop(){
 camera.onclick=async()=>{
   camera.disabled=true;
   try{
-    if(running){await stop();statusLine.textContent='点击散开 / 聚拢 · 滑动引出流星 · 按住 R 蓄能 · 松开引爆';return}
+    if(running){await stop();statusLine.textContent='滑动召唤流星 · 按住蓄能，松手引爆';return}
     statusLine.textContent='正在启动摄像头和手部识别…';
     stream=await navigator.mediaDevices.getUserMedia({video:{width:480,height:360},audio:false});
     const base='https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/';
