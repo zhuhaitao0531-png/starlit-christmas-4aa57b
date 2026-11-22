@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>金色圣诞树</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#100c10;color:#f4dfbd;font:14px system-ui}canvas{width:100vw;height:100dvh;display:block;touch-action:none}footer{position:fixed;bottom:18px;left:0;right:0;text-align:center}button{background:#201918;color:#ead5aa;border:1px solid #685437;border-radius:24px;padding:8px 16px;cursor:pointer}small{display:block;margin:8px;color:#baab9a}video{position:fixed;bottom:20px;right:16px;width:min(19vw,140px);transform:scaleX(-1);border-radius:6px}
+</style><canvas aria-label="金色粒子圣诞树"></canvas><footer><button id="toggle">散开星尘</button> <button id="demo">演示流星雨</button> <button id="camera">开启手势</button><small id="status" aria-live="polite">点击散开 / 聚拢 · 滑动引出流星 · 按住 R 蓄能 · 松开引爆</small></footer><video muted playsinline hidden></video>
+<script>
+const canvas=document.querySelector('canvas'), ctx=canvas.getContext('2d');
+const toggle=document.querySelector('#toggle'),camera=document.querySelector('#camera'),statusLine=document.querySelector('#status');
+const tau=2*Math.PI, rand=Math.random;
+const points=Array.from({length:5400},(_,i)=>{
+  const h=Math.sqrt(rand()),r=.31*h*(i%4===0?Math.sqrt(rand()):.86+.14*rand());
+  return {h,r,a:i%6===0?tau*h*5+rand()*.14:rand()*tau,u:rand()*2-1,v:rand()*2-1,z:rand(),phase:rand()*tau};
+});
+const dust=Array.from({length:380},()=>[rand(),rand(),rand()]);
+let width,height,scale,spread=0,target=0,last=0;
+let colorAge=0,rainAge=0,raining=false,dx=0,dy=1,handAnchor=null,drag=null;
+const wrap=(x,size)=>((x%size)+size)%size;
+const clamp=x=>Math.min(1,Math.max(0,x));
+let keepColors=false,pinching=false,keySpin=false,spinSpeed=0,treeAngle=0;
+let charge=0,armed=false,burstAge=Infinity,sparks=[];
+function explode(){
+  if(!armed)return;
+  armed=false;charge=0;burstAge=0;keepColors=true;scatter(true);
+  sparks=Array.from({length:920},(_,i)=>{
+    const a=rand()*tau,depth=rand(),speed=(.16+depth**2*1.22);
+    return {vx:Math.cos(a)*speed,vy:Math.sin(a)*speed,hue:(i%9)*40+rand()*22,life:1.1+rand()*2.4,size:.6+depth*2.4};
+  });
+}
+addEventListener('keydown',e=>{if(e.code==='KeyR' && !e.ctrlKey && !e.metaKey){keySpin=true;scatter(false)}});
+addEventListener('keyup',e=>{if(e.code==='KeyR'){keySpin=false;explode()}});
+addEventListener('blur',()=>{keySpin=false;pinching=false});
+const colors=[[65,169,255],[168,99,255],[53,247,223],[255,97,178],[255,225,164],[214,230,255]];
+const palettes=Array.from({length:3},(_,k)=>colors.map(color=>{
+  const gold=[[217,131,38],[255,202,80],[255,244,179]][k];
+  return Array.from({length:65},(_,n)=>'rgb('+gold.map((c,j)=>Math.round(c+(color[j]-c)*n/64)).join(',')+')');
+}));
+for(const p of points){
+  p.palette=palettes[p.z>.87?2:p.z>.35?1:0][Math.floor(rand()*colors.length)];
+  // Each shell draws its members from the corresponding slice of the tree.
+  p.shell=Math.min(9,Math.floor(p.h*10));
+  p.shellHeight=(p.shell+.5)/10;
+  p.release=(9-p.shell)*.069+rand()*.12;
+  p.mobile=rand()<.80;
+  p.grain=rand()-.5;
+  p.delay=rand()**2*3.8;p.ox=0;p.oy=0;
+}
+function swipe(x,y){
+  const length=Math.hypot(x,y);
+  if(length<12)return;
+  if(!target)scatter(true);
+  dx=x/length;dy=y/length;raining=true;
+}
+function resize(){
+  width=innerWidth;height=canvas.clientHeight;scale=Math.min(height*.68,width*1.12);
+  const ratio=Math.min(devicePixelRatio,2);
+  canvas.width=Math.round(width*ratio);canvas.height=Math.round(height*ratio);ctx.setTransform(ratio,0,0,ratio,0,0);
+}
+resize();addEventListener('resize',resize);
+function scatter(on){if(target!==Number(on)){rainAge=0;raining=false;handAnchor=null}target=Number(on);toggle.textContent=on?'聚成圣诞树':'散开星尘'}
+toggle.onclick=()=>scatter(!target);
+canvas.onpointerdown=e=>{drag={x:e.clientX,y:e.clientY};canvas.setPointerCapture(e.pointerId)};
+canvas.onpointercancel=()=>{drag=null};
+canvas.onpointermove=e=>{
+  if(!drag)return;
+  const x=e.clientX-drag.x,y=e.clientY-drag.y;
+  if(Math.hypot(x,y)>18){swipe(x,y);drag={x:e.clientX,y:e.clientY,moved:true}}
+};
+document.querySelector('#demo').onclick=()=>{swipe(100,55)};
+canvas.onpointerup=e=>{
+  if(!drag)return;
+  const x=e.clientX-drag.x,y=e.clientY-drag.y,moved=drag.moved;drag=null;
+  if(Math.hypot(x,y)>=12)swipe(x,y);else if(!moved)scatter(!target);
+};
+addEventListener('keydown',e=>{if(e.code==='Space' && !e.repeat && e.target.tagName!=='BUTTON'){e.preventDefault();scatter(!target)}});
+function glow(x,y,r,core){
+  const g=ctx.createRadialGradient(x,y,0,x,y,r);
+  g.addColorStop(0,core);g.addColorStop(.2,'rgba(255,200,48,.38)');g.addColorStop(1,'rgba(255,150,12,0)');
+  ctx.fillStyle=g;ctx.fillRect(x-r,y-r,r*2,r*2);
+}
+function drawEnergy(cx,top,t){
+  ctx.save();
+  ctx.globalCompositeOperation='lighter';
+  if(burstAge<3.5){
+    const y=top+scale*.52;
+    const travel=age=>1.48*(1-Math.exp(-age*1.65));
+    const head=travel(burstAge),tail=travel(Math.max(0,burstAge-.048));
+    for(const star of sparks){
+      const opacity=clamp(1-burstAge/star.life);
+      if(!opacity)continue;
+      const x=cx+star.vx*scale*head,sy=y+star.vy*scale*head;
+      ctx.strokeStyle='hsla('+star.hue+',98%,68%,'+opacity+')';
+      ctx.lineWidth=star.size;ctx.beginPath();ctx.moveTo(cx+star.vx*scale*tail,y+star.vy*scale*tail);ctx.lineTo(x,sy);ctx.stroke();
+      ctx.fillStyle='rgba(245,246,255,'+opacity+')';ctx.fillRect(x,sy,star.size,star.size);
+    }
+    if(burstAge<.65){
+      ctx.globalAlpha=(1-burstAge/.65)**2;
+      glow(cx,y,scale*(.16+burstAge*.65),'#ffffff');
+    }
+  }
+  ctx.restore();
+}
+function draw(ms){
+  const t=ms*.001,dt=Math.min((ms-last)*.001,.06);last=ms;
+  spread+=(target-spread)*(1-Math.exp(-dt*3.3));
+  colorAge=Math.min(7,Math.max(0,colorAge+(target && spread>.82?dt:target?0:-dt*6)));
+  if(raining && colorAge>.45){
+    rainAge+=dt;
+    if(rainAge>.25)keepColors=true;
+  }
+  spinSpeed+=((pinching || keySpin ? 19 : .32)-spinSpeed)*(1-Math.exp(-dt*4));
+  treeAngle+=spinSpeed*dt;
+  const spinning=pinching || keySpin;
+  charge=clamp(charge+(spinning ? dt/1.45 : -dt*.85));
+  if(spinning && charge>.1)armed=true;
+  burstAge+=dt;
+  const cx=width*.5,top=(height-scale)*.44;
+  ctx.globalCompositeOperation='source-over';ctx.fillStyle='#100c10';ctx.fillRect(0,0,width,height);
+  ctx.globalCompositeOperation='lighter';
+  const night=clamp(colorAge/4);
+  if(night){
+    const fog=ctx.createRadialGradient(width*.42,height*.54,0,width*.42,height*.54,width*.68);
+    fog.addColorStop(0,'#1b1b48');fog.addColorStop(.45,'#161027');fog.addColorStop(1,'#020411');
+    ctx.globalCompositeOperation='source-over';ctx.globalAlpha=night;ctx.fillStyle=fog;ctx.fillRect(0,0,width,height);
+    ctx.globalAlpha=1;ctx.globalCompositeOperation='lighter';
+  }
+  for(const [u,v,z] of dust){
+    ctx.fillStyle='rgba(214,163,95,'+(.14+.26*z)+')';ctx.fillRect(u*width,(v*height+t*(2+5*z))%height,1+z,1+z);
+  }
+  glow(cx,top+scale*.76,scale*.34,'rgba(245,154,38,.14)');
+  for(const p of points){
+    const progress=p.mobile ? clamp((charge-p.release)/.255) : 0;
+    const peel=progress*progress*(3-2*progress);
+    const angle=p.a+treeAngle+peel*(p.shell*.32+p.grain*.10);
+    const depth=Math.sin(angle),side=Math.cos(angle),twinkle=.55+.45*Math.sin(t*2+p.phase);
+    const shellRadius=.07+.34*p.shellHeight+.011*Math.sin(angle*3+p.shell)+p.grain*.021;
+    const radius=p.r+(shellRadius-p.r)*peel;
+    const elevation=p.h+(p.shellHeight-p.h+p.grain*.011)*peel;
+    const x0=radius*side*scale;
+    const y0=(elevation+radius*(depth*.19+peel*side*.065*Math.sin(p.shell*.8)))*scale;
+    const x1=p.u*width*.57+Math.sin(t*.47+p.phase)*scale*.03;
+    const y1=(p.v*.51+.47)*height-top+Math.cos(t*.35+p.phase)*scale*.025;
+    let x=cx+x0*(1-spread)+x1*spread,y=top+y0*(1-spread)+y1*spread;
+    const tint=Math.max(keepColors ? 1-spread : 0,clamp((colorAge-p.phase*.22)/4));
+    ctx.fillStyle=p.palette[Math.round(tint*64)];
+    const meteor=raining && p.z>.965 ? clamp((rainAge-p.delay)/1.6) : 0;
+    if(meteor){
+      const speed=scale*(.32+.6*p.phase/tau)*meteor;
+      p.ox+=dx*speed*dt;p.oy+=dy*speed*dt;
+    }
+    if(p.ox || p.oy){
+      const mx=wrap(x+p.ox+90,width+180)-90,my=wrap(y+p.oy+90,height+180)-90;
+      x+=(mx-x)*spread;y+=(my-y)*spread;
+      if(!target && spread<.005){p.ox=p.oy=0}
+    }
+    ctx.globalAlpha=(.29+.64*twinkle)*(.78+.22*depth)*(1-spread*.44);
+    const s=Math.max(.6,scale*.0034)*(.32+p.z*1.24);
+    if(peel>.01 && spread<.9){
+      // Short tangent glints stay attached to the brightest individual grains.
+      ctx.globalAlpha*=.68+.32*(depth+1)/2;
+      if(p.z>.82){
+        ctx.strokeStyle=ctx.fillStyle;ctx.lineWidth=Math.max(.55,s*.46);
+        const trail=radius*scale*.045*peel*(1-spread);
+        ctx.beginPath();ctx.moveTo(x+depth*trail,y-side*trail*.19);ctx.lineTo(x,y);ctx.stroke();
+      }
+      ctx.beginPath();ctx.arc(x,y,Math.max(.42,s*(.33+.14*(1+depth))),0,tau);ctx.fill();
+    }else ctx.fillRect(x,y,s,s);
+    if(p.z>.96 && tint){
+      ctx.globalAlpha=tint*(.22+.45*twinkle);
+      ctx.fillRect(x-2*s,y,5*s,.65);ctx.fillRect(x,y-2*s,.65,5*s);
+    }
+    if(meteor){
+      const tail=scale*(.08+.12*p.phase/tau)*meteor;
+      const gradient=ctx.createLinearGradient(x,y,x-dx*tail,y-dy*tail);
+      gradient.addColorStop(0,ctx.fillStyle);gradient.addColorStop(1,'transparent');
+      ctx.strokeStyle=gradient;ctx.lineWidth=Math.max(1.3,s*.95);ctx.globalAlpha=meteor*.82;
+      ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x-dx*tail,y-dy*tail);ctx.stroke();
+    }
+  }
+  ctx.globalAlpha=1-night;glow(cx,top,scale*(.095+.09*spread),'#fff9ce');
+  ctx.fillStyle='#fff7ad';ctx.beginPath();
+  for(let i=0;i<10;i++){const a=i*Math.PI/5-Math.PI/2,r=scale*(i%2?.011:.026);ctx.lineTo(cx+r*Math.cos(a),top+r*Math.sin(a))}
+  ctx.closePath();ctx.fill();ctx.globalAlpha=1;drawEnergy(cx,top,t);requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+// MediaPipe's hand landmarks are optional. The particle renderer runs locally.
+const video=document.querySelector('video');
+let stream,tracker,running=false;
+async function stop(){
+  pinching=false;handAnchor=null;running=false;stream?.getTracks().forEach(track=>track.stop());stream=null;
+  video.srcObject=null;video.hidden=true;
+  if(tracker){await tracker.close();tracker=null}
+  camera.textContent='开启手势';
+}
+camera.onclick=async()=>{
+  camera.disabled=true;
+  try{
+    if(running){await stop();statusLine.textContent='点击散开 / 聚拢 · 滑动引出流星 · 按住 R 蓄能 · 松开引爆';return}
+    statusLine.textContent='正在启动摄像头和手部识别…';
+    stream=await navigator.mediaDevices.getUserMedia({video:{width:480,height:360},audio:false});
+    const base='https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/';
+    if(!window.Hands)await new Promise((resolve,reject)=>{const script=document.createElement('script');script.src=base+'hands.js';script.onload=resolve;script.onerror=reject;document.head.append(script)});
+    tracker=new Hands({locateFile:file=>base+file});
+    tracker.setOptions({maxNumHands:1,modelComplexity:0,minDetectionConfidence:.65,minTrackingConfidence:.65});
+    tracker.onResults(result=>{
+      const hand=result.multiHandLandmarks?.[0];if(!hand){pinching=false;handAnchor=null;return}
+      const distance=(a,b)=>Math.hypot(hand[a].x-hand[b].x,hand[a].y-hand[b].y);
+      const palmWidth=Math.hypot((hand[5].x-hand[17].x)*video.videoWidth,(hand[5].y-hand[17].y)*video.videoHeight);
+      const tipGap=Math.hypot((hand[4].x-hand[8].x)*video.videoWidth,(hand[4].y-hand[8].y)*video.videoHeight);
+      pinching=palmWidth>0 && tipGap/palmWidth<(pinching?.38:.24);
+      if(pinching){handAnchor=null;scatter(false);return}
+      const extended=[8,12,16,20].filter(tip=>distance(tip,0)>distance(tip-2,0)*1.17).length;
+      if(armed && extended>=3)explode();
+      if(extended>=3 || (target && extended>=2)){
+        scatter(true);
+        const x=1-hand[9].x,y=hand[9].y,now=performance.now();
+        if(!handAnchor || now-handAnchor.time>800)handAnchor={x,y,time:now};
+        const hx=x-handAnchor.x,hy=y-handAnchor.y;
+        if(Math.hypot(hx,hy)>.045){
+          swipe(hx*width,hy*height);handAnchor={x,y,time:now};
+        }
+      }else{handAnchor=null;if(extended<=1)scatter(false)}
+    });
+    video.srcObject=stream;await video.play();video.hidden=false;running=true;
+    camera.textContent='关闭手势';statusLine.textContent='张掌散开 · 挥手引出流星 · 握拳聚拢 · 捏合高速旋转 · 再张掌引爆';
+    async function detect(){
+      if(!running)return;
+      try{await tracker.send({image:video});if(running)requestAnimationFrame(detect)}
+      catch{if(running){await stop();statusLine.textContent='识别中断，可点击画面切换'}}
+    }
+    detect();
+  }catch{await stop();statusLine.textContent='手势启动失败，请检查网络和摄像头权限。仍可点击切换。'}
+  finally{camera.disabled=false}
+};
+</script></html>
