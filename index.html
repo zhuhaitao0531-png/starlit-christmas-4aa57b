@@ -85,7 +85,8 @@ function aimAtSeed(x,y,closed){
   return true;
 }
 const spectrum=Array.from({length:360},(_,i)=>'hsl('+i+',78%,74%)');
-function orbitStars(cx,top,t,front){
+const companions=[];
+function orbitStars(cx,top,t,front,dt){
   const count=Math.min(26,3+harvest);
   ctx.save();ctx.globalCompositeOperation='lighter';
   for(let i=0;i<count;i++){
@@ -94,13 +95,42 @@ function orbitStars(cx,top,t,front){
     if((depth>=0)!==front)continue;
     const r=Math.min(width*.41,scale*(.25+lane*.08));
     const y0=top+scale*(.34+lane*.21),tilt=(lane-1)*.18;
-    const x=cx+r*Math.cos(angle),y=y0+r*(depth*.29+Math.cos(angle)*tilt);
+    const orbitX=cx+r*Math.cos(angle),orbitY=y0+r*(depth*.29+Math.cos(angle)*tilt);
+    const star=companions[i]??={x:orbitX,y:orbitY,vx:0,vy:0,path:[],flying:false,returning:false};
+    const flying=raining && rainAge>(i%7)*.16;
+    const speed=scale*(.48+.17*lane);
+    const easing=1-Math.exp(-dt*4);
+    if(flying){
+      star.vx+=(dx*speed-star.vx)*easing;
+      star.vy+=(dy*speed-star.vy)*easing;
+      star.x+=star.vx*dt;star.y+=star.vy*dt;
+      if(star.x < -24 || star.x>width+24 || star.y < -24 || star.y>height+24){
+        star.x=wrap(star.x+24,width+48)-24;star.y=wrap(star.y+24,height+48)-24;
+        star.path.length=0;
+      }
+    }else{
+      if(star.flying)star.returning=true;
+      star.x+=(orbitX-star.x)*(star.returning?easing:1);
+      star.y+=(orbitY-star.y)*(star.returning?easing:1);
+      star.vx=0;star.vy=0;
+      if(Math.hypot(star.x-orbitX,star.y-orbitY)<2 || (!target && spread<.001))star.returning=false;
+    }
+    star.flying=flying;
+    const x=star.x,y=star.y;
     const hue=Math.floor((t*7+lane*34+i*7+40)%360),size=Math.max(2,scale*.009)*(1+.28*depth);
-    ctx.fillStyle=spectrum[hue];
-    for(let j=10;j>0;j--){
-      const a=angle-j*.026;
-      ctx.globalAlpha=(1-j/11)*.5;
-      ctx.beginPath();ctx.arc(cx+r*Math.cos(a),y0+r*(Math.sin(a)*.29+Math.cos(a)*tilt),size*.22,0,tau);ctx.fill();
+    const path=star.path,life=flying?.60:.33;
+    while(path.length && path[0].time<t-life)path.shift();
+    if(!path.length || t-path[path.length-1].time>=.018)path.push({x,y,time:t});
+    ctx.fillStyle=spectrum[hue];ctx.lineCap='round';
+    for(let j=0;j<path.length;j++){
+      const a=path[j],b=path[j+1] || star,fade=clamp(1-(t-a.time)/life);
+      ctx.globalAlpha=fade*fade*.76;ctx.lineWidth=Math.max(.5,size*.72*fade);
+      ctx.strokeStyle=spectrum[(hue+Math.round((1-fade)*66))%360];
+      ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
+      if(flying && j%3===0){
+        ctx.globalAlpha=fade*(1-fade)*.85;
+        ctx.fillRect(a.x+Math.sin(a.time*7+i)*4,a.y+Math.cos(a.time*5)*3,1.4,1.4);
+      }
     }
     ctx.globalAlpha=.72+.22*depth;ctx.shadowBlur=size*2;ctx.shadowColor=ctx.fillStyle;
     ctx.beginPath();
@@ -249,7 +279,7 @@ function draw(ms){
     ctx.fillStyle='rgba(214,163,95,'+(.14+.26*z)+')';ctx.fillRect(u*width,(v*height+t*(2+5*z))%height,1+z,1+z);
   }
   glow(cx,top+scale*.76,scale*.34,'rgba(245,154,38,.14)');
-  orbitStars(cx,top,t,false);
+  orbitStars(cx,top,t,false,dt);
   for(const p of points){
     const progress=p.mobile ? clamp((charge-p.release)/.255) : 0;
     const peel=progress*progress*(3-2*progress);
@@ -303,7 +333,7 @@ function draw(ms){
   ctx.globalAlpha=1-night;glow(cx,top,scale*(.095+.09*spread),'#fff9ce');
   ctx.fillStyle='#fff7ad';ctx.beginPath();
   for(let i=0;i<10;i++){const a=i*Math.PI/5-Math.PI/2,r=scale*(i%2?.011:.026);ctx.lineTo(cx+r*Math.cos(a),top+r*Math.sin(a))}
-  ctx.closePath();ctx.fill();ctx.globalAlpha=1;drawGrowth(cx,top,t);orbitStars(cx,top,t,true);drawEnergy(cx,top,t);requestAnimationFrame(draw);
+  ctx.closePath();ctx.fill();ctx.globalAlpha=1;drawGrowth(cx,top,t);orbitStars(cx,top,t,true,dt);drawEnergy(cx,top,t);requestAnimationFrame(draw);
 }
 requestAnimationFrame(draw);
 // MediaPipe's hand landmarks are optional. The particle renderer runs locally.
