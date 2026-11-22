@@ -16,7 +16,7 @@ video{bottom:110px;pointer-events:none}
 @keyframes float{to{transform:translate(4px,-9px) rotate(12deg)}}
 #hint{position:fixed;top:max(20px,env(safe-area-inset-top));right:16px;max-width:44vw;text-align:right;color:#efe0c9;font-size:12px;line-height:1.6;pointer-events:none}
 @media(max-width:520px){footer button{padding:6px 10px;font-size:12px}small{font-size:11px}video{width:76px}}
-</style><canvas aria-label="金色粒子圣诞树"></canvas><header><h1>星屿圣诞树</h1><span id="growth"></span><progress id="meter" aria-label="圣诞树成长进度"></progress></header><div id="hint" role="status"></div><div id="garden"></div><footer><button id="toggle">散开星尘</button> <button id="demo">演示流星雨</button> <button id="hold">按住蓄能</button> <button id="camera">开启手势</button><small id="status" aria-live="polite">滑动召唤流星 · 按住蓄能，松手引爆</small></footer><video muted playsinline hidden></video>
+#finger{position:fixed;left:0;top:0;width:26px;height:26px;border:1px solid #d1fff7;border-radius:50%;pointer-events:none;box-shadow:0 0 12px #8cead7;z-index:3}.seed.aim{outline:2px solid #c5ffed;background:#34575380}</style><canvas aria-label="金色粒子圣诞树"></canvas><header><h1>星屿圣诞树</h1><span id="growth"></span><progress id="meter" aria-label="圣诞树成长进度"></progress></header><div id="hint" role="status"></div><i id="finger" hidden></i><div id="garden"></div><footer><button id="toggle">散开星尘</button> <button id="demo">演示流星雨</button> <button id="hold">按住蓄能</button> <button id="camera">开启手势</button><small id="status" aria-live="polite">滑动召唤流星 · 按住蓄能，松手引爆</small></footer><video muted playsinline hidden></video>
 <script>
 const canvas=document.querySelector('canvas'), ctx=canvas.getContext('2d');
 const toggle=document.querySelector('#toggle'),camera=document.querySelector('#camera'),statusLine=document.querySelector('#status');
@@ -62,7 +62,52 @@ function releaseSeeds(){
     };
     garden.append(seed);
   }
-  hint.textContent='轻点带光圈的星种，培育圣诞树';
+  hint.textContent='轻点星种，或用食指瞄准后捏合收集';
+}
+const finger=document.querySelector('#finger');
+let pickedGrip=false,aimed=null;
+function clearAim(){
+  aimed?.classList.remove('aim');aimed=null;pickedGrip=false;finger.hidden=true;
+}
+function aimAtSeed(x,y,closed){
+  finger.hidden=false;finger.style.transform='translate('+ (x-13)+'px,'+(y-13)+'px)';
+  if(pickedGrip && closed)return true;
+  pickedGrip=false;
+  let closest=null,best=42;
+  for(const seed of garden.children){
+    const box=seed.getBoundingClientRect();
+    const distance=Math.hypot(x-box.left-box.width/2,y-box.top-box.height/2);
+    if(distance<best){best=distance;closest=seed}
+  }
+  aimed?.classList.remove('aim');aimed=closest;aimed?.classList.add('aim');
+  if(!closest)return false;
+  if(closed){closest.click();pickedGrip=true;aimed=null}
+  return true;
+}
+const spectrum=Array.from({length:360},(_,i)=>'hsl('+i+',78%,74%)');
+function orbitStars(cx,top,t,front){
+  const count=Math.min(26,3+harvest);
+  ctx.save();ctx.globalCompositeOperation='lighter';
+  for(let i=0;i<count;i++){
+    const lane=i%3,angle=t*(.39+lane*.09)+i*2.4;
+    const depth=Math.sin(angle);
+    if((depth>=0)!==front)continue;
+    const r=Math.min(width*.41,scale*(.25+lane*.08));
+    const y0=top+scale*(.34+lane*.21),tilt=(lane-1)*.18;
+    const x=cx+r*Math.cos(angle),y=y0+r*(depth*.29+Math.cos(angle)*tilt);
+    const hue=Math.floor((t*7+lane*34+i*7+40)%360),size=Math.max(2,scale*.009)*(1+.28*depth);
+    ctx.fillStyle=spectrum[hue];
+    for(let j=10;j>0;j--){
+      const a=angle-j*.026;
+      ctx.globalAlpha=(1-j/11)*.5;
+      ctx.beginPath();ctx.arc(cx+r*Math.cos(a),y0+r*(Math.sin(a)*.29+Math.cos(a)*tilt),size*.22,0,tau);ctx.fill();
+    }
+    ctx.globalAlpha=.72+.22*depth;ctx.shadowBlur=size*2;ctx.shadowColor=ctx.fillStyle;
+    ctx.beginPath();
+    for(let k=0;k<8;k++){const a=k*Math.PI/4,rad=k%2?size*.28:size*1.35;ctx.lineTo(x+rad*Math.cos(a),y+rad*Math.sin(a))}
+    ctx.closePath();ctx.fill();ctx.shadowBlur=0;
+  }
+  ctx.restore();
 }
 function drawGrowth(cx,top,t){
   if(!level)return;
@@ -204,6 +249,7 @@ function draw(ms){
     ctx.fillStyle='rgba(214,163,95,'+(.14+.26*z)+')';ctx.fillRect(u*width,(v*height+t*(2+5*z))%height,1+z,1+z);
   }
   glow(cx,top+scale*.76,scale*.34,'rgba(245,154,38,.14)');
+  orbitStars(cx,top,t,false);
   for(const p of points){
     const progress=p.mobile ? clamp((charge-p.release)/.255) : 0;
     const peel=progress*progress*(3-2*progress);
@@ -218,7 +264,8 @@ function draw(ms){
     const y1=(p.v*.51+.47)*height-top+Math.cos(t*.35+p.phase)*scale*.025;
     let x=cx+x0*(1-spread)+x1*spread,y=top+y0*(1-spread)+y1*spread;
     const tint=Math.max(keepColors ? 1-spread : 0,clamp((colorAge-p.phase*.22)/4));
-    ctx.fillStyle=p.palette[Math.round(tint*64)];
+    const wave=Math.floor((38+t*7+p.h*58+p.z*18)%360);
+    ctx.fillStyle=spread<.015 ? spectrum[wave] : p.palette[Math.round(tint*64)];
     const meteor=raining && p.z>.965 ? clamp((rainAge-p.delay)/1.6) : 0;
     if(meteor){
       const speed=scale*(.32+.6*p.phase/tau)*meteor;
@@ -256,14 +303,14 @@ function draw(ms){
   ctx.globalAlpha=1-night;glow(cx,top,scale*(.095+.09*spread),'#fff9ce');
   ctx.fillStyle='#fff7ad';ctx.beginPath();
   for(let i=0;i<10;i++){const a=i*Math.PI/5-Math.PI/2,r=scale*(i%2?.011:.026);ctx.lineTo(cx+r*Math.cos(a),top+r*Math.sin(a))}
-  ctx.closePath();ctx.fill();ctx.globalAlpha=1;drawGrowth(cx,top,t);drawEnergy(cx,top,t);requestAnimationFrame(draw);
+  ctx.closePath();ctx.fill();ctx.globalAlpha=1;drawGrowth(cx,top,t);orbitStars(cx,top,t,true);drawEnergy(cx,top,t);requestAnimationFrame(draw);
 }
 requestAnimationFrame(draw);
 // MediaPipe's hand landmarks are optional. The particle renderer runs locally.
 const video=document.querySelector('video');
 let stream,tracker,running=false;
 async function stop(){
-  pinching=false;handAnchor=null;running=false;stream?.getTracks().forEach(track=>track.stop());stream=null;
+  clearAim();pinching=false;handAnchor=null;running=false;stream?.getTracks().forEach(track=>track.stop());stream=null;
   video.srcObject=null;video.hidden=true;
   if(tracker){await tracker.close();tracker=null}
   camera.textContent='开启手势';
@@ -279,11 +326,15 @@ camera.onclick=async()=>{
     tracker=new Hands({locateFile:file=>base+file});
     tracker.setOptions({maxNumHands:1,modelComplexity:0,minDetectionConfidence:.65,minTrackingConfidence:.65});
     tracker.onResults(result=>{
-      const hand=result.multiHandLandmarks?.[0];if(!hand){pinching=false;handAnchor=null;return}
+      const hand=result.multiHandLandmarks?.[0];if(!hand){clearAim();pinching=false;handAnchor=null;return}
       const distance=(a,b)=>Math.hypot(hand[a].x-hand[b].x,hand[a].y-hand[b].y);
       const palmWidth=Math.hypot((hand[5].x-hand[17].x)*video.videoWidth,(hand[5].y-hand[17].y)*video.videoHeight);
       const tipGap=Math.hypot((hand[4].x-hand[8].x)*video.videoWidth,(hand[4].y-hand[8].y)*video.videoHeight);
-      pinching=palmWidth>0 && tipGap/palmWidth<(pinching?.38:.24);
+      const closed=palmWidth>0 && tipGap/palmWidth<((pinching || pickedGrip)?.38:.24);
+      if(aimAtSeed((1-hand[8].x)*width,hand[8].y*height,closed)){
+        pinching=false;handAnchor=null;return;
+      }
+      pinching=closed;
       if(pinching){handAnchor=null;scatter(false);return}
       const extended=[8,12,16,20].filter(tip=>distance(tip,0)>distance(tip-2,0)*1.17).length;
       if(armed && extended>=3)explode();
